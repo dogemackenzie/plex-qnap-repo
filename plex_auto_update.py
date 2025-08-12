@@ -1,7 +1,6 @@
 import json
 import os
 import requests
-from bs4 import BeautifulSoup
 import semver  # For semantic version comparison
 from datetime import datetime
 import xml.etree.ElementTree as ET
@@ -16,57 +15,48 @@ with open('config.json', 'r') as f:
 # Constants
 QPKGS_DIR = 'qpkgs'
 REPO_XML = 'repo.xml'
-PLEX_URL = config['plex_downloads_url']
+PLEX_API_URL = 'https://www.plex.tv/wp-json/plex/v1/downloads/pms.json'
 ARCH_MAP = config['architectures']  # QNAP platformID: Plex arch suffix
 
 def fetch_latest_plex_versions():
-    """Scrape Plex downloads page with user-agent for QNAP QPKG links and checksums."""
+    """Fetch Plex QPKG versions from the API."""
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     }
     try:
-        response = requests.get(PLEX_URL, headers=headers, timeout=10)
+        response = requests.get(PLEX_API_URL, headers=headers, timeout=10)
         response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'lxml')
+        data = response.json()
         
         qpkg_links = {}
-        for a in soup.find_all('a', href=True):
-            href = a['href']
-            print(f"Checking href: {href}")  # Debug output
-            if 'qpkg' in href.lower() and 'plex' in href.lower():
-                # Try to extract version and arch
-                parts = href.split('/')
-                version = next((p for p in parts if any(c.isdigit() for c in p) and '-' in p), None)
-                if version:
-                    arch = next((arch_qnap for arch_plex, arch_qnap in ARCH_MAP.items() if arch_plex in href), None)
+        # Assuming the API returns a structure like { "releases": [{ "platform": "qnap", "version": "...", "url": "...", ... }] }
+        for release in data.get('releases', []):
+            platform = release.get('platform', '').lower()
+            if 'qnap' in platform:
+                version = release.get('version')
+                if version and semver.VersionInfo.is_valid(version):
+                    arch = next((arch_qnap for arch_plex, arch_qnap in ARCH_MAP.items() if arch_plex in platform), None)
                     if arch:
-                        full_url = urljoin(PLEX_URL, href)
-                        qpkg_links.setdefault(version, {})[arch] = {'url': full_url}
-                        print(f"Found version: {version}, arch: {arch}, url: {full_url}")
+                        url = release.get('url')
+                        if url:
+                            full_url = urljoin(PLEX_API_URL, url) if not url.startswith('http') else url
+                            qpkg_links.setdefault(version, {})[arch] = {'url': full_url}
+                            print(f"Found version: {version}, arch: {arch}, url: {full_url}")
         
-        # Attempt to find checksums (adjust based on screenshot)
-        checksums = soup.find_all('a', text=lambda t: 'md5' in str(t).lower())
-        for checksum in checksums:
-            checksum_url = urljoin(PLEX_URL, checksum['href'])
-            try:
-                checksum_response = requests.get(checksum_url, headers=headers, timeout=10)
-                checksum_response.raise_for_status()
-                md5 = checksum_response.text.strip()  # Assuming raw MD5 file
-                for version, data in qpkg_links.items():
-                    for arch, info in data.items():
-                        info['md5'] = md5  # Assign to all for now, refine with matching
-            except Exception as e:
-                print(f"Failed to fetch checksum from {checksum_url}: {e}")
-        
-        # Log potential API endpoints for debugging
-        scripts = soup.find_all('script')
-        for script in scripts:
-            if script.string and 'api' in script.string.lower():
-                print(f"Possible API endpoint in script: {script.string}")
+        # Attempt to fetch checksums (placeholder; adjust based on API response)
+        for version, arch_data in qpkg_links.items():
+            for arch, info in arch_data.items():
+                # Check if API provides checksum; if not, log for manual fetch
+                checksum = release.get('checksum', {}).get('md5') if 'checksum' in release else None
+                if checksum:
+                    info['md5'] = checksum
+                    print(f"Found MD5 for {version}: {checksum}")
+                else:
+                    print(f"No MD5 found for {version}, {arch}; manual fetch may be needed")
         
         return qpkg_links if qpkg_links else {}
     except Exception as e:
-        print(f"Error scraping Plex page: {e}")
+        print(f"Error fetching Plex API: {e}")
         return {}
 
 def download_qpkg(url, version, arch):
