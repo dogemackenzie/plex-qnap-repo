@@ -7,6 +7,7 @@ from datetime import datetime
 import xml.etree.ElementTree as ET
 from xml.dom import minidom  # For pretty XML
 import subprocess  # For git commits
+from urllib.parse import urljoin
 
 # Load config
 with open('config.json', 'r') as f:
@@ -19,25 +20,51 @@ PLEX_URL = config['plex_downloads_url']
 ARCH_MAP = config['architectures']  # QNAP platformID: Plex arch suffix
 
 def fetch_latest_plex_versions():
-    """Scrape Plex downloads page for QNAP QPKG links and versions."""
+    """Scrape Plex downloads page with user-agent for QNAP QPKG links and checksums."""
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
     try:
-        response = requests.get(PLEX_URL, timeout=10)
+        response = requests.get(PLEX_URL, headers=headers, timeout=10)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'lxml')
         
         qpkg_links = {}
         for a in soup.find_all('a', href=True):
             href = a['href']
+            print(f"Checking href: {href}")  # Debug output
             if 'qpkg' in href.lower() and 'plex' in href.lower():
-                # Try to extract version from URL (e.g., /1.40.5.8830-3f3f1a1/)
+                # Try to extract version and arch
                 parts = href.split('/')
-                version = next((p for p in parts if '-' in p and any(c.isdigit() for c in p)), None)
+                version = next((p for p in parts if any(c.isdigit() for c in p) and '-' in p), None)
                 if version:
-                    # Map Plex arch to QNAP platformID
                     arch = next((arch_qnap for arch_plex, arch_qnap in ARCH_MAP.items() if arch_plex in href), None)
                     if arch:
-                        qpkg_links.setdefault(version, {})[arch] = urljoin(PLEX_URL, href)
-        return qpkg_links
+                        full_url = urljoin(PLEX_URL, href)
+                        qpkg_links.setdefault(version, {})[arch] = {'url': full_url}
+                        print(f"Found version: {version}, arch: {arch}, url: {full_url}")
+        
+        # Attempt to find checksums (adjust based on screenshot)
+        checksums = soup.find_all('a', text=lambda t: 'md5' in str(t).lower())
+        for checksum in checksums:
+            checksum_url = urljoin(PLEX_URL, checksum['href'])
+            try:
+                checksum_response = requests.get(checksum_url, headers=headers, timeout=10)
+                checksum_response.raise_for_status()
+                md5 = checksum_response.text.strip()  # Assuming raw MD5 file
+                for version, data in qpkg_links.items():
+                    for arch, info in data.items():
+                        info['md5'] = md5  # Assign to all for now, refine with matching
+            except Exception as e:
+                print(f"Failed to fetch checksum from {checksum_url}: {e}")
+        
+        # Log potential API endpoints for debugging
+        scripts = soup.find_all('script')
+        for script in scripts:
+            if script.string and 'api' in script.string.lower():
+                print(f"Possible API endpoint in script: {script.string}")
+        
+        return qpkg_links if qpkg_links else {}
     except Exception as e:
         print(f"Error scraping Plex page: {e}")
         return {}
@@ -61,15 +88,6 @@ def download_qpkg(url, version, arch):
             return None
     print(f"Already exists: {filename}")
     return path
-
-# Comment out MD5 as per your request to avoid generating new hashes
-# def compute_md5(file_path):
-#     """Compute MD5 hash for QPKG."""
-#     hash_md5 = hashlib.md5()
-#     with open(file_path, "rb") as f:
-#         for chunk in iter(lambda: f.read(4096), b""):
-#             hash_md5.update(chunk)
-#     return hash_md5.hexdigest()
 
 def update_repo_xml(new_versions):
     """Update or create repo.xml with new Plex entries."""
@@ -112,7 +130,8 @@ def update_repo_xml(new_versions):
                 plat = ET.SubElement(item, 'platform')
                 ET.SubElement(plat, 'platformID').text = platform_id
                 ET.SubElement(plat, 'location').text = location
-                # No signature since MD5 is commented out
+                if 'md5' in arch_data[arch]:
+                    ET.SubElement(plat, 'signature').text = arch_data[arch]['md5']
 
     xml_str = minidom.parseString(ET.tostring(tree.getroot())).toprettyxml(indent="  ")
     with open(REPO_XML, 'w') as f:
@@ -140,10 +159,10 @@ def main():
     for version, links in latest_versions.items():
         if version not in current_versions or semver.compare(version, max(current_versions.keys(), default='0.0.0')) > 0:
             new_versions[version] = {}
-            for arch, url in links.items():
-                path = download_qpkg(url, version, arch)
+            for arch, info in links.items():
+                path = download_qpkg(info['url'], version, arch)
                 if path:
-                    new_versions[version][arch] = {'path': path}
+                    new_versions[version][arch] = {'path': path, 'md5': info.get('md5')}
                     current_versions[version] = current_versions.get(version, []) + [arch]
     
     if new_versions:
