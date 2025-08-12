@@ -29,9 +29,18 @@ def fetch_latest_plex_versions():
             page.goto(PLEX_URL)
             print(f"Loaded page: {PLEX_URL}")
             
-            # Wait for and interact with dropdown (adjust selector based on screenshot)
-            page.wait_for_selector('select#platform-select', state='visible', timeout=10000)  # Example selector
-            dropdown = page.query_selector('select#platform-select')
+            # Wait for and interact with dropdown (adjust selector based on inspection)
+            page.wait_for_selector('select.platform-select', state='visible', timeout=20000)  # Updated placeholder
+            dropdown = page.query_selector('select.platform-select')
+            if not dropdown:
+                print("Dropdown not found; logging available elements for debug:")
+                elements = page.query_selector_all('*')
+                for elem in elements[:10]:  # Limit to first 10 for brevity
+                    tag = elem.name
+                    attrs = elem.get_attributes()
+                    print(f"Element: {tag}, attrs: {attrs}")
+                return {}
+            
             for option in dropdown.query_selector_all('option'):
                 if 'QNAP' in option.inner_text():
                     option.click()
@@ -39,7 +48,7 @@ def fetch_latest_plex_versions():
                     break
             
             # Wait for QPKG links to load
-            page.wait_for_selector('a[href*=".qpkg"]', state='visible', timeout=10000)
+            page.wait_for_selector('a[href*=".qpkg"]', state='visible', timeout=20000)
             qpkg_links = {}
             qpkg_elements = page.query_selector_all('a[href*=".qpkg"]')
             for elem in qpkg_elements:
@@ -54,7 +63,7 @@ def fetch_latest_plex_versions():
                         print(f"Found version: {version}, arch: {arch}, url: {full_url}")
             
             # Extract checksums (adjust selector based on checksum area)
-            checksums = page.query_selector_all('div.checksums a')  # Example, adjust per screenshot
+            checksums = page.query_selector_all('div.checksums a')  # Example, adjust per inspection
             for checksum in checksums:
                 link_text = checksum.inner_text().lower()
                 if 'md5' in link_text:
