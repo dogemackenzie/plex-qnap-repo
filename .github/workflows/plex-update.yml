@@ -18,7 +18,9 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4 lxml semver
+        run: |
+          pip install requests beautifulsoup4 lxml semver playwright
+          playwright install --with-deps
 
       - name: Run update script
         run: python plex_auto_update.py

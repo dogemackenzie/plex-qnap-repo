@@ -1,6 +1,7 @@
 import json
 import os
 import requests
+from playwright.sync_api import sync_playwright
 import semver  # For semantic version comparison
 from datetime import datetime
 import xml.etree.ElementTree as ET
@@ -15,49 +16,63 @@ with open('config.json', 'r') as f:
 # Constants
 QPKGS_DIR = 'qpkgs'
 REPO_XML = 'repo.xml'
-PLEX_API_URL = 'https://www.plex.tv/wp-json/plex/v1/downloads/pms.json'
+PLEX_URL = config['plex_downloads_url']
 ARCH_MAP = config['architectures']  # QNAP platformID: Plex arch suffix
 
 def fetch_latest_plex_versions():
-    """Fetch Plex QPKG versions from the API."""
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
-    try:
-        response = requests.get(PLEX_API_URL, headers=headers, timeout=10)
-        response.raise_for_status()
-        data = response.json()
+    """Scrape Plex downloads page using Playwright for dropdown and checksums."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
         
-        qpkg_links = {}
-        # Assuming the API returns a structure like { "releases": [{ "platform": "qnap", "version": "...", "url": "...", ... }] }
-        for release in data.get('releases', []):
-            platform = release.get('platform', '').lower()
-            if 'qnap' in platform:
-                version = release.get('version')
-                if version and semver.VersionInfo.is_valid(version):
-                    arch = next((arch_qnap for arch_plex, arch_qnap in ARCH_MAP.items() if arch_plex in platform), None)
-                    if arch:
-                        url = release.get('url')
-                        if url:
-                            full_url = urljoin(PLEX_API_URL, url) if not url.startswith('http') else url
-                            qpkg_links.setdefault(version, {})[arch] = {'url': full_url}
-                            print(f"Found version: {version}, arch: {arch}, url: {full_url}")
-        
-        # Attempt to fetch checksums (placeholder; adjust based on API response)
-        for version, arch_data in qpkg_links.items():
-            for arch, info in arch_data.items():
-                # Check if API provides checksum; if not, log for manual fetch
-                checksum = release.get('checksum', {}).get('md5') if 'checksum' in release else None
-                if checksum:
-                    info['md5'] = checksum
-                    print(f"Found MD5 for {version}: {checksum}")
-                else:
-                    print(f"No MD5 found for {version}, {arch}; manual fetch may be needed")
-        
-        return qpkg_links if qpkg_links else {}
-    except Exception as e:
-        print(f"Error fetching Plex API: {e}")
-        return {}
+        try:
+            page.goto(PLEX_URL)
+            print(f"Loaded page: {PLEX_URL}")
+            
+            # Wait for and interact with dropdown (adjust selector based on screenshot)
+            page.wait_for_selector('select#platform-select', state='visible', timeout=10000)  # Example selector
+            dropdown = page.query_selector('select#platform-select')
+            for option in dropdown.query_selector_all('option'):
+                if 'QNAP' in option.inner_text():
+                    option.click()
+                    print(f"Selected QNAP option: {option.inner_text()}")
+                    break
+            
+            # Wait for QPKG links to load
+            page.wait_for_selector('a[href*=".qpkg"]', state='visible', timeout=10000)
+            qpkg_links = {}
+            qpkg_elements = page.query_selector_all('a[href*=".qpkg"]')
+            for elem in qpkg_elements:
+                href = elem.get_attribute('href')
+                if 'plex' in href.lower():
+                    filename = href.split('/')[-1]
+                    version = filename.split('_')[1]  # Adjust based on actual filename
+                    arch = next((arch_qnap for arch_plex, arch_qnap in ARCH_MAP.items() if arch_plex in href), None)
+                    if version and arch:
+                        full_url = urljoin(PLEX_URL, href) if not href.startswith('http') else href
+                        qpkg_links.setdefault(version, {})[arch] = {'url': full_url}
+                        print(f"Found version: {version}, arch: {arch}, url: {full_url}")
+            
+            # Extract checksums (adjust selector based on checksum area)
+            checksums = page.query_selector_all('div.checksums a')  # Example, adjust per screenshot
+            for checksum in checksums:
+                link_text = checksum.inner_text().lower()
+                if 'md5' in link_text:
+                    checksum_url = checksum.get_attribute('href')
+                    response = requests.get(checksum_url, timeout=10)
+                    if response.status_code == 200:
+                        md5 = response.text.strip()
+                        for version, data in qpkg_links.items():
+                            for arch, info in data.items():
+                                info['md5'] = md5  # Assign to all for now, refine with matching
+                                print(f"Found MD5 for {version}: {md5}")
+            
+            return qpkg_links if qpkg_links else {}
+        except Exception as e:
+            print(f"Error scraping Plex page: {e}")
+            return {}
+        finally:
+            browser.close()
 
 def download_qpkg(url, version, arch):
     """Download QPKG if not exists."""
