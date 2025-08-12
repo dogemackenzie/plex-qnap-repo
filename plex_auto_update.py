@@ -29,9 +29,9 @@ def fetch_latest_plex_versions():
             page.goto(PLEX_URL)
             print(f"Loaded page: {PLEX_URL}")
             
-            # Wait for and interact with dropdown (adjust selector based on inspection)
-            page.wait_for_selector('select.platform-select', state='visible', timeout=20000)  # Updated placeholder
-            dropdown = page.query_selector('select.platform-select')
+            # Wait for and interact with dropdown
+            page.wait_for_selector('select[aria-label="Select a platform to download the plex media server"]', state='visible', timeout=20000)
+            dropdown = page.query_selector('select[aria-label="Select a platform to download the plex media server"]')
             if not dropdown:
                 print("Dropdown not found; logging available elements for debug:")
                 elements = page.query_selector_all('*')
@@ -41,11 +41,14 @@ def fetch_latest_plex_versions():
                     print(f"Element: {tag}, attrs: {attrs}")
                 return {}
             
-            for option in dropdown.query_selector_all('option'):
-                if 'QNAP' in option.inner_text():
-                    option.click()
-                    print(f"Selected QNAP option: {option.inner_text()}")
-                    break
+            # Select QNAP option
+            qnap_option = dropdown.query_selector('option[value="pms_nas_qnap"]')
+            if qnap_option:
+                qnap_option.click()
+                print("Selected QNAP option")
+            else:
+                print("QNAP option not found in dropdown")
+                return {}
             
             # Wait for QPKG links to load
             page.wait_for_selector('a[href*=".qpkg"]', state='visible', timeout=20000)
@@ -55,15 +58,15 @@ def fetch_latest_plex_versions():
                 href = elem.get_attribute('href')
                 if 'plex' in href.lower():
                     filename = href.split('/')[-1]
-                    version = filename.split('_')[1]  # Adjust based on actual filename
+                    version = filename.split('_')[1]  # Adjust based on actual filename (e.g., 1.40.5.8830)
                     arch = next((arch_qnap for arch_plex, arch_qnap in ARCH_MAP.items() if arch_plex in href), None)
-                    if version and arch:
+                    if version and arch and semver.VersionInfo.is_valid(version):
                         full_url = urljoin(PLEX_URL, href) if not href.startswith('http') else href
                         qpkg_links.setdefault(version, {})[arch] = {'url': full_url}
                         print(f"Found version: {version}, arch: {arch}, url: {full_url}")
             
-            # Extract checksums (adjust selector based on checksum area)
-            checksums = page.query_selector_all('div.checksums a')  # Example, adjust per inspection
+            # Extract checksums (adjust selector based on page structure)
+            checksums = page.query_selector_all('div.checksums a')  # Placeholder; refine with actual selector
             for checksum in checksums:
                 link_text = checksum.inner_text().lower()
                 if 'md5' in link_text:
@@ -73,7 +76,7 @@ def fetch_latest_plex_versions():
                         md5 = response.text.strip()
                         for version, data in qpkg_links.items():
                             for arch, info in data.items():
-                                info['md5'] = md5  # Assign to all for now, refine with matching
+                                info['md5'] = md5  # Assign to all for now; refine with matching
                                 print(f"Found MD5 for {version}: {md5}")
             
             return qpkg_links if qpkg_links else {}
