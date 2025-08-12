@@ -91,8 +91,8 @@ def update_repo_xml(new_versions):
         ET.SubElement(item, 'changeLog').text = "https://plex.tv/changelog"
         ET.SubElement(item, 'category').text = "Multimedia"
         ET.SubElement(item, 'type').text = "Entertainment"
-        ET.SubElement(item, 'icon80').text = "https://dogemackenzie.github.io/plex-qnap-repo/assets/plex-80x80.png"  # Placeholder, update with real asset
-        ET.SubElement(item, 'icon100').text = "https://dogemackenzie.github.io/plex-qnap-repo/assets/plex-100x100.png"  # Placeholder
+        ET.SubElement(item, 'icon80').text = "https://dogemackenzie.github.io/plex-qnap-repo/assets/plex-80x80.png"
+        ET.SubElement(item, 'icon100').text = "https://dogemackenzie.github.io/plex-qnap-repo/assets/plex-100x100.png"
         ET.SubElement(item, 'description').text = "<![CDATA[Plex organizes your media and streams it to any device.]]>"
         ET.SubElement(item, 'fwVersion').text = "5.0.0"
         ET.SubElement(item, 'version').text = version
@@ -101,7 +101,7 @@ def update_repo_xml(new_versions):
         ET.SubElement(item, 'developer').text = "<![CDATA[Plex, Inc. (auto-mirrored)]]>"
         ET.SubElement(item, 'forumlink').text = "<![CDATA[https://forums.plex.tv]]>"
         ET.SubElement(item, 'language').text = "<![CDATA[English]]>"
-        ET.SubElement(item, 'snapshot').text = "<![CDATA[https://dogemackenzie.github.io/plex-qnap-repo/assets/plex-ui.jpg]]>"  # Placeholder
+        ET.SubElement(item, 'snapshot').text = "https://dogemackenzie.github.io/plex-qnap-repo/assets/plex-ui.jpg"
         ET.SubElement(item, 'bannerImg').text = "<![CDATA[]]>"
         ET.SubElement(item, 'tutorialLink').text = "<![CDATA[https://dogemackenzie.github.io/plex-qnap-repo]]>"
         
@@ -109,11 +109,10 @@ def update_repo_xml(new_versions):
             if arch in arch_data:
                 qpkg_path = arch_data[arch]['path']
                 location = f"https://dogemackenzie.github.io/plex-qnap-repo/qpkgs/PlexMediaServer_{version}_{arch}.qpkg"
-                # Since MD5 is commented out, leave signature empty or remove
                 plat = ET.SubElement(item, 'platform')
                 ET.SubElement(plat, 'platformID').text = platform_id
                 ET.SubElement(plat, 'location').text = location
-                # ET.SubElement(plat, 'signature').text = arch_data[arch].get('md5', '')  # Commented out
+                # No signature since MD5 is commented out
 
     xml_str = minidom.parseString(ET.tostring(tree.getroot())).toprettyxml(indent="  ")
     with open(REPO_XML, 'w') as f:
@@ -144,7 +143,7 @@ def main():
             for arch, url in links.items():
                 path = download_qpkg(url, version, arch)
                 if path:
-                    new_versions[version][arch] = {'path': path}  # Removed MD5
+                    new_versions[version][arch] = {'path': path}
                     current_versions[version] = current_versions.get(version, []) + [arch]
     
     if new_versions:

@@ -58,4 +58,7 @@ Important Notes
 
 Legal Compliance: This repo mirrors official Plex QPKGs without modifications. Always review Plex's terms of service for redistribution and usage.
 Security: Use HTTPS for the repo URL. Keep your NAS firmware updated.
-Support: For Plex-specific issues, visit the Plex Forums.
+Support: For Plex-specific issues, visit the Plex Forums. For repo problems, check the GitHub issues page.
+Assets: Real assets (e.g., icons, screenshots) are now hosted on GitHub at https://dogemackenzie.github.io/plex-qnap-repo/assets/. Ensure GitHub Pages is enabled and assets are uploaded to the /assets/ directory.
+
+If you encounter persistent issues, consider reaching out via the repo's GitHub discussions or issues.
