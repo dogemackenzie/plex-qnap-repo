@@ -4,8 +4,8 @@
     "TS-NASX86": "x86_64",
     "TS-NASARM_64": "arm_64"
   },
-  "current_versions": {},  // Populated by script; e.g., {"1.40.4": ["TS-NASX86", "TS-NASARM_64"]}
+  "current_versions": {},
   "repo_title": "Auto-Updating Plex Repo for QNAP",
-  "repo_link": "https://yourusername.github.io/plex-qnap-repo",
+  "repo_link": "https://dogemackenzie.github.io/plex-qnap-repo",
   "repo_description": "Automatically updated Plex Media Server QPKGs"
 }
