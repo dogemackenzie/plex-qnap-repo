@@ -1,7 +1,6 @@
 import json
 import os
 import requests
-from playwright.sync_api import sync_playwright
 import semver  # For semantic version comparison
 from datetime import datetime
 import xml.etree.ElementTree as ET
@@ -16,75 +15,50 @@ with open('config.json', 'r') as f:
 # Constants
 QPKGS_DIR = 'qpkgs'
 REPO_XML = 'repo.xml'
-PLEX_URL = config['plex_downloads_url']
-ARCH_MAP = config['architectures']  # QNAP platformID: Plex arch suffix
+PLEX_API_URL = 'https://plex.tv/api/downloads/5.json'  # Plex Media Server API
+ARCH_MAP = {
+    "TS-NASX86": "x86_64",
+    "TS-NASARM_64": "arm_64",
+    "TS-NASARMv7_1": "armv7_1",  # Added (e.g., TS-x31+ series)
+    "TS-NASARMv7_2": "armv7_2",  # Added (TS-x31 series)
+    "TS-NASARMv8": "armv8",  # Added (TS-x28 series)
+    "TS-NASX64": "x64"  # Added for Intel/AMD 64-bit
+}
 
 def fetch_latest_plex_versions():
-    """Scrape Plex downloads page using Playwright for dropdown and checksums."""
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+    """Fetch Plex QPKG versions from the Plex API with fallback debug."""
+    try:
+        response = requests.get(PLEX_API_URL, timeout=10)
+        response.raise_for_status()
+        data = response.json()
         
+        qpkg_links = {}
+        for release in data.get('computer', {}).get('Linux', {}).get('releases', []):
+            distro = release.get('distro')
+            if distro == 'qnap':
+                version = data.get('version')
+                if version and semver.VersionInfo.is_valid(version):
+                    build = release.get('build')  # e.g., 'linux-x86_64'
+                    arch = next((arch_qnap for arch_plex, arch_qnap in ARCH_MAP.items() if arch_plex in build), None)
+                    if arch:
+                        url = release.get('url')
+                        md5 = release.get('checksum')
+                        if url and md5:
+                            full_url = urljoin(PLEX_API_URL, url) if not url.startswith('http') else url
+                            qpkg_links.setdefault(version, {})[arch] = {'url': full_url, 'md5': md5}
+                            print(f"Found version: {version}, arch: {arch}, url: {full_url}, md5: {md5}")
+        
+        return qpkg_links if qpkg_links else {}
+    except Exception as e:
+        print(f"Error fetching Plex API: {e}")
+        print("API failed; logging available data for debug:")
         try:
-            page.goto(PLEX_URL)
-            print(f"Loaded page: {PLEX_URL}")
-            
-            # Wait for and interact with dropdown
-            page.wait_for_selector('select[aria-label="Select a platform to download the plex media server"]', state='visible', timeout=20000)
-            dropdown = page.query_selector('select[aria-label="Select a platform to download the plex media server"]')
-            if not dropdown:
-                print("Dropdown not found; logging available elements for debug:")
-                elements = page.query_selector_all('*')
-                for elem in elements[:10]:  # Limit to first 10 for brevity
-                    tag = elem.name
-                    attrs = elem.get_attributes()
-                    print(f"Element: {tag}, attrs: {attrs}")
-                return {}
-            
-            # Select QNAP option
-            qnap_option = dropdown.query_selector('option[value="pms_nas_qnap"]')
-            if qnap_option:
-                qnap_option.click()
-                print("Selected QNAP option")
-            else:
-                print("QNAP option not found in dropdown")
-                return {}
-            
-            # Wait for QPKG links to load
-            page.wait_for_selector('a[href*=".qpkg"]', state='visible', timeout=20000)
-            qpkg_links = {}
-            qpkg_elements = page.query_selector_all('a[href*=".qpkg"]')
-            for elem in qpkg_elements:
-                href = elem.get_attribute('href')
-                if 'plex' in href.lower():
-                    filename = href.split('/')[-1]
-                    version = filename.split('_')[1]  # Adjust based on actual filename (e.g., 1.40.5.8830)
-                    arch = next((arch_qnap for arch_plex, arch_qnap in ARCH_MAP.items() if arch_plex in href), None)
-                    if version and arch and semver.VersionInfo.is_valid(version):
-                        full_url = urljoin(PLEX_URL, href) if not href.startswith('http') else href
-                        qpkg_links.setdefault(version, {})[arch] = {'url': full_url}
-                        print(f"Found version: {version}, arch: {arch}, url: {full_url}")
-            
-            # Extract checksums (adjust selector based on page structure)
-            checksums = page.query_selector_all('div.checksums a')  # Placeholder; refine with actual selector
-            for checksum in checksums:
-                link_text = checksum.inner_text().lower()
-                if 'md5' in link_text:
-                    checksum_url = checksum.get_attribute('href')
-                    response = requests.get(checksum_url, timeout=10)
-                    if response.status_code == 200:
-                        md5 = response.text.strip()
-                        for version, data in qpkg_links.items():
-                            for arch, info in data.items():
-                                info['md5'] = md5  # Assign to all for now; refine with matching
-                                print(f"Found MD5 for {version}: {md5}")
-            
-            return qpkg_links if qpkg_links else {}
-        except Exception as e:
-            print(f"Error scraping Plex page: {e}")
-            return {}
-        finally:
-            browser.close()
+            elements = data.get('computer', {}).get('Linux', {}).get('releases', [])
+            for elem in elements[:10]:  # Limit to first 10 for brevity
+                print(f"Release data: {elem}")
+        except:
+            print("No debug data available.")
+        return {}
 
 def download_qpkg(url, version, arch):
     """Download QPKG if not exists."""

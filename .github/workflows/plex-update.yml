@@ -2,7 +2,7 @@ name: Auto-Update Plex Repo
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # Daily at midnight UTC
+    - cron: '0 * * * *'  # Hourly updates (approx. 30-min intent)
   workflow_dispatch:  # Manual trigger
 
 jobs:
@@ -19,8 +19,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install requests beautifulsoup4 lxml semver playwright
-          playwright install --with-deps
+          pip install requests semver
 
       - name: Run update script
         run: python plex_auto_update.py
