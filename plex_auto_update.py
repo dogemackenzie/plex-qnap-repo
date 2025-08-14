@@ -16,6 +16,7 @@ with open('config.json', 'r') as f:
 QPKGS_DIR = 'qpkgs'
 REPO_XML = 'repo.xml'
 PLEX_API_URL = 'https://plex.tv/api/downloads/5.json'  # Plex Media Server API
+ARCH_MAP = config['architectures']  # QNAP platformID: Plex arch suffix
 
 def fetch_latest_plex_versions():
     """Fetch Plex QPKG versions from the Plex API with detailed debug."""
@@ -29,24 +30,21 @@ def fetch_latest_plex_versions():
         # Target the QNAP section under "nas"
         qnap_data = data.get('nas', {}).get('QNAP', {})
         version = qnap_data.get('version')
-        if version:
-            base_version = '.'.join(version.split('.')[:3])  # Use first three components for validation
-            if semver.VersionInfo.is_valid(base_version):
-                releases = qnap_data.get('releases', [])
-                for release in releases:
-                    distro = release.get('distro')
-                    if distro == 'qnap':
-                        build = release.get('build', '').lower().replace('linux-', '')  # Strip 'linux-' prefix
+        if version and semver.VersionInfo.is_valid(version.split('-')[0]):
+            releases = qnap_data.get('releases', [])
+            for release in releases:
+                distro = release.get('distro')
+                if distro == 'qnap':
+                    build = release.get('build', '').lower().replace('linux-', '')  # Strip 'linux-' prefix
+                    arch = next((arch_qnap for arch_plex, arch_qnap in ARCH_MAP.items() if arch_plex in build), None)
+                    if arch:
                         url = release.get('url')
                         md5 = release.get('checksum')
                         if url and md5:
                             full_url = urljoin(PLEX_API_URL, url) if not url.startswith('http') else url
-                            qpkg_links.setdefault(version, {})[build] = {'url': full_url, 'md5': md5}
-                            print(f"Found version: {version}, arch: {build}, url: {full_url}, md5: {md5}")
-            else:
-                print(f"Version validation failed for {version}")
+                            qpkg_links.setdefault(version, {})[arch] = {'url': full_url, 'md5': md5}
+                            print(f"Found version: {version}, arch: {arch}, url: {full_url}, md5: {md5}")
         
-        print(f"Fetched versions: {list(qpkg_links.keys())}")  # Debug fetched versions
         return qpkg_links if qpkg_links else {}
     except Exception as e:
         print(f"Error fetching Plex API: {e}")
@@ -58,7 +56,7 @@ def fetch_latest_plex_versions():
                 if len(parts) >= 3:
                     version = parts[1]
                     arch = parts[2].replace('.qpkg', '')
-                    if semver.VersionInfo.is_valid(version.split('.')[:3]):
+                    if arch in ARCH_MAP.values():
                         path = os.path.join(QPKGS_DIR, filename)
                         qpkg_links.setdefault(version, {})[arch] = {'path': path}
                         print(f"Found manual version: {version}, arch: {arch}, path: {path}")
@@ -118,15 +116,16 @@ def update_repo_xml(new_versions):
         ET.SubElement(item, 'bannerImg').text = "<![CDATA[]]>"
         ET.SubElement(item, 'tutorialLink').text = "<![CDATA[https://dogemackenzie.github.io/plex-qnap-repo]]>"
         
-        for arch in arch_data:
-            qpkg_path = arch_data[arch].get('path', '')
-            if qpkg_path:
-                location = f"https://dogemackenzie.github.io/plex-qnap-repo/qpkgs/PlexMediaServer_{version}_{arch}.qpkg"
-                plat = ET.SubElement(item, 'platform')
-                ET.SubElement(plat, 'platformID').text = arch  # Use build as platformID for simplicity
-                ET.SubElement(plat, 'location').text = location
-                if 'md5' in arch_data[arch]:
-                    ET.SubElement(plat, 'signature').text = arch_data[arch]['md5']
+        for platform_id, arch in ARCH_MAP.items():
+            if arch in arch_data:
+                qpkg_path = arch_data[arch].get('path', '')
+                if qpkg_path:
+                    location = f"https://dogemackenzie.github.io/plex-qnap-repo/qpkgs/PlexMediaServer_{version}_{arch}.qpkg"
+                    plat = ET.SubElement(item, 'platform')
+                    ET.SubElement(plat, 'platformID').text = platform_id
+                    ET.SubElement(plat, 'location').text = location
+                    if 'md5' in arch_data[arch]:
+                        ET.SubElement(plat, 'signature').text = arch_data[arch]['md5']
 
     xml_str = minidom.parseString(ET.tostring(tree.getroot())).toprettyxml(indent="  ")
     with open(REPO_XML, 'w') as f:
@@ -155,7 +154,7 @@ def main():
     for version, links in latest_versions.items():
         base_version = version.split('-')[0]  # Use base version for comparison
         print(f"Checking version: {base_version}, current versions: {[v.split('-')[0] for v in current_versions.keys()]}")  # Debug comparison
-        if not current_versions or base_version not in [v.split('-')[0] for v in current_versions.keys()]:
+        if base_version not in [v.split('-')[0] for v in current_versions.keys()]:
             new_versions[version] = {}
             for arch, info in links.items():
                 path = info.get('path')
