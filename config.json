@@ -1,11 +1,18 @@
 {
-  "plex_downloads_url": "https://www.plex.tv/media-server-downloads/",
-  "architectures": {
-    "TS-NASX86": "x86_64",
-    "TS-NASARM_64": "arm_64"
-  },
-  "current_versions": {},
-  "repo_title": "Auto-Updating Plex Repo for QNAP",
-  "repo_link": "https://dogemackenzie.github.io/plex-qnap-repo",
-  "repo_description": "Automatically updated Plex Media Server QPKGs"
+    "plex_downloads_url": "https://www.plex.tv/media-server-downloads/",
+    "architectures": {
+        "TS-NASX86": "x86_64",
+        "TS-NASARM_64": "arm_64"
+    },
+    "current_versions": {
+        "1.42.1.10060-4e8b05daf": [
+            "armv7neon",
+            "aarch64",
+            "x86_64",
+            "armv7hf"
+        ]
+    },
+    "repo_title": "Auto-Updating Plex Repo for QNAP",
+    "repo_link": "https://dogemackenzie.github.io/plex-qnap-repo",
+    "repo_description": "Automatically updated Plex Media Server QPKGs"
 }
